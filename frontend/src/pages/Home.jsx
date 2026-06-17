@@ -1,5 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import api from "../services/api";
+import Header from "../components/Header";
+import BookFilter from "../components/BookFilter";
+import BookForm from "../components/BookForm";
+import BookDetail from "../components/BookDetail";
+import BookTable from "../components/BookTable";
+import Pagination from "../components/Pagination";
 
 function Home() {
   const [books, setBooks] = useState([]);
@@ -7,6 +13,8 @@ function Home() {
   const [pageSize, setPageSize] = useState(20);
   const [next, setNext] = useState(null);
   const [previous, setPrevious] = useState(null);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
 
   const [titleFilter, setTitleFilter] = useState("");
   const [authorFilter, setAuthorFilter] = useState("");
@@ -17,9 +25,25 @@ function Home() {
     price: "",
     quantity: "",
   });
-
+  
   const [editingId, setEditingId] = useState(null);
   const [detailBook, setDetailBook] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const logout = async () => {
+    try {
+      const refreshToken = localStorage.getItem("refresh");
+      if (refreshToken) {
+        await api.post("api/logout/", { refresh: refreshToken });
+      }
+    } catch (error) {
+      console.error("Logout failed on server:", error);
+    } finally {
+      localStorage.removeItem("access");
+      localStorage.removeItem("refresh");
+      window.location.reload();
+    }
+  };
 
   const resetForm = () => {
     setForm({
@@ -31,31 +55,37 @@ function Home() {
     setEditingId(null);
   };
 
-  const loadBooks = async () => {
+  const loadBooks = useCallback(async () => {
     try {
       const response = await api.get("api/books/", {
         params: {
           page,
           page_size: pageSize,
-          title: titleFilter,
-          author: authorFilter,
+          title: titleFilter || undefined,
+          author: authorFilter || undefined,
         },
       });
 
-      setBooks(response.data.results);
-      setNext(response.data.next);
-      setPrevious(response.data.previous);
+      // Map from CustomPagination structure
+      if (response.data) {
+        setBooks(response.data.results || []);
+        setNext(response.data.links?.next || null);
+        setPrevious(response.data.links?.previous || null);
+        setTotalPages(response.data.total_pages || 1);
+        setTotalCount(response.data.count || 0);
+      }
     } catch (error) {
-      console.log(error);
+      console.error(error);
       alert("Không tải được danh sách sách");
     }
-  };
+  }, [page, pageSize, titleFilter, authorFilter]);
 
   useEffect(() => {
     loadBooks();
-  }, [page, pageSize]);
+  }, [loadBooks]);
 
-  const handleFilter = () => {
+  const handleFilter = (e) => {
+    e.preventDefault();
     setPage(1);
     loadBooks();
   };
@@ -73,15 +103,29 @@ function Home() {
     });
   };
 
-  const addBook = async () => {
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.title.trim() || !form.author.trim() || !form.price || !form.quantity) {
+      alert("Vui lòng điền đầy đủ thông tin");
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
-      await api.post("api/books/", form);
+      if (editingId) {
+        await api.put(`api/books/${editingId}/`, form);
+        alert("Cập nhật sách thành công");
+      } else {
+        await api.post("api/books/", form);
+        alert("Thêm sách thành công");
+      }
       resetForm();
       loadBooks();
-      alert("Thêm sách thành công");
     } catch (error) {
-      console.log(error);
-      alert("Thêm sách thất bại");
+      console.error(error);
+      alert(editingId ? "Cập nhật thất bại" : "Thêm sách thất bại");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -90,7 +134,7 @@ function Home() {
       const response = await api.get(`api/books/${id}/`);
       setDetailBook(response.data);
     } catch (error) {
-      console.log(error);
+      console.error(error);
       alert("Không lấy được chi tiết sách");
     }
   };
@@ -103,17 +147,10 @@ function Home() {
       price: book.price,
       quantity: book.quantity,
     });
-  };
-
-  const saveEdit = async () => {
-    try {
-      await api.put(`api/books/${editingId}/`, form);
-      resetForm();
-      loadBooks();
-      alert("Cập nhật sách thành công");
-    } catch (error) {
-      console.log(error);
-      alert("Cập nhật thất bại");
+    // Scroll to form smoothly
+    const formElement = document.getElementById("book-form-section");
+    if (formElement) {
+      formElement.scrollIntoView({ behavior: "smooth" });
     }
   };
 
@@ -123,120 +160,99 @@ function Home() {
 
     try {
       await api.delete(`api/books/${id}/`);
-      loadBooks();
       alert("Xóa sách thành công");
+      // Adjust page index if the last item on the page was deleted
+      if (books.length === 1 && page > 1) {
+        setPage(page - 1);
+      } else {
+        loadBooks();
+      }
     } catch (error) {
-      console.log(error);
+      console.error(error);
       alert("Xóa thất bại");
     }
   };
 
   return (
-    <div style={{ maxWidth: "1200px", margin: "auto", padding: "20px" }}>
-      <h1>Book Management</h1>
+    <div className="dashboard-container">
+      {/* Header Bar */}
+      <Header onLogout={logout} />
 
-      <section style={{ border: "1px solid #ddd", padding: "15px", marginBottom: "20px" }}>
-        <h2>Filter Books</h2>
+      {/* Main Grid Layout */}
+      <div className="dashboard-grid">
+        
+        {/* Left Side: Filter and Add/Edit Forms */}
+        <aside className="dashboard-sidebar">
+          
+          {/* Filter Card */}
+          <BookFilter
+            titleFilter={titleFilter}
+            setTitleFilter={setTitleFilter}
+            authorFilter={authorFilter}
+            setAuthorFilter={setAuthorFilter}
+            onFilter={handleFilter}
+          />
 
-        <input
-          placeholder="Filter by title"
-          value={titleFilter}
-          onChange={(e) => setTitleFilter(e.target.value)}
-        />
+          {/* Form Card (Add/Edit) */}
+          <BookForm
+            form={form}
+            onChange={handleChange}
+            onSubmit={handleSubmit}
+            editingId={editingId}
+            onCancel={resetForm}
+            isSubmitting={isSubmitting}
+          />
+        </aside>
 
-        <input
-          placeholder="Filter by author"
-          value={authorFilter}
-          onChange={(e) => setAuthorFilter(e.target.value)}
-        />
+        {/* Right Side: List and Details */}
+        <main className="dashboard-main">
+          
+          {/* Detail View Card */}
+          <BookDetail book={detailBook} onClose={() => setDetailBook(null)} />
 
-        <button onClick={handleFilter}>Search</button>
-        <button onClick={clearFilter}>Clear</button>
-      </section>
+          {/* Book List Card */}
+          <div className="dashboard-card">
+            <div className="list-card-header">
+              <h2 className="card-title">Danh Sách Sách ({totalCount} kết quả)</h2>
+              
+              <div className="list-controls">
+                <label className="select-label">Hiển thị:</label>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setPage(1);
+                  }}
+                  className="form-select"
+                >
+                  <option value={10}>10 dòng</option>
+                  <option value={20}>20 dòng</option>
+                  <option value={50}>50 dòng</option>
+                  <option value={100}>100 dòng</option>
+                </select>
+              </div>
+            </div>
 
-      <section style={{ border: "1px solid #ddd", padding: "15px", marginBottom: "20px" }}>
-        <h2>{editingId ? "Edit Book" : "Add Book"}</h2>
+            {/* Book Table List */}
+            <BookTable
+              books={books}
+              onDetail={getDetail}
+              onEdit={startEdit}
+              onDelete={deleteBook}
+            />
 
-        <input name="title" placeholder="Title" value={form.title} onChange={handleChange} />
-        <input name="author" placeholder="Author" value={form.author} onChange={handleChange} />
-        <input name="price" placeholder="Price" value={form.price} onChange={handleChange} />
-        <input name="quantity" placeholder="Quantity" value={form.quantity} onChange={handleChange} />
-
-        {editingId ? (
-          <>
-            <button onClick={saveEdit}>Save</button>
-            <button onClick={resetForm}>Cancel</button>
-          </>
-        ) : (
-          <button onClick={addBook}>Add Book</button>
-        )}
-      </section>
-
-      <section style={{ border: "1px solid #ddd", padding: "15px", marginBottom: "20px" }}>
-        <h2>Book List</h2>
-
-        <label>Page size: </label>
-        <select
-          value={pageSize}
-          onChange={(e) => {
-            setPageSize(Number(e.target.value));
-            setPage(1);
-          }}
-        >
-          <option value={20}>20 records</option>
-          <option value={100}>100 records</option>
-        </select>
-
-        <p>Current page: {page}</p>
-
-        <button disabled={!previous} onClick={() => setPage(page - 1)}>
-          Previous
-        </button>
-
-        <button disabled={!next} onClick={() => setPage(page + 1)}>
-          Next
-        </button>
-
-        <table border="1" cellPadding="10" style={{ width: "100%", marginTop: "20px" }}>
-          <thead>
-            <tr>
-              <th>Title</th>
-              <th>Author</th>
-              <th>Price</th>
-              <th>Quantity</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {books.map((book) => (
-              <tr key={book.id}>
-                <td>{book.title}</td>
-                <td>{book.author}</td>
-                <td>{book.price}</td>
-                <td>{book.quantity}</td>
-                <td>
-                  <button onClick={() => getDetail(book.id)}>Detail</button>
-                  <button onClick={() => startEdit(book)}>Edit</button>
-                  <button onClick={() => deleteBook(book.id)}>Delete</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      {detailBook && (
-        <section style={{ border: "1px solid #ddd", padding: "15px" }}>
-          <h2>Book Detail</h2>
-          <p>ID: {detailBook.id}</p>
-          <p>Title: {detailBook.title}</p>
-          <p>Author: {detailBook.author}</p>
-          <p>Price: {detailBook.price}</p>
-          <p>Quantity: {detailBook.quantity}</p>
-          <button onClick={() => setDetailBook(null)}>Close Detail</button>
-        </section>
-      )}
+            {/* Pagination Controls */}
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              totalCount={totalCount}
+              onPageChange={setPage}
+              hasPrevious={!!previous}
+              hasNext={!!next}
+            />
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

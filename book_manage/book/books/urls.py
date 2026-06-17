@@ -1,30 +1,14 @@
-# from django.urls import path
-# from book.books.view import BookViewSet
-# book_list = BookViewSet.as_view({
-#     'get': 'list',
-#     'post': 'create'
-# })
-# book_detail = BookViewSet.as_view({
-#     'get': 'retrieve',
-#     'put': 'update',
-#     'patch': 'partial_update',
-#     'delete': 'destroy'
-# })
-# urlpatterns = [
-#     path('books/', book_list),
-#     path('books/<int:pk>/', book_detail)
-# ]
-# from rest_framework.routers import DefaultRouter
-# from .view import BookViewSet
-
-# router = DefaultRouter()
-# router.register(r'books', BookViewSet)
-
-# urlpatterns = router.urls
 from django.urls import path
-from book.books.view import BookList, BookDetail
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
+from book.books.views import BookList, BookDetail, LogoutView
 
 urlpatterns = [
+    path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('logout/', LogoutView.as_view(), name='logout'),
     path('books/', BookList.as_view(), name='book-list'),
     path('books/<int:pk>/', BookDetail.as_view(), name='book-detail'),
 ]
